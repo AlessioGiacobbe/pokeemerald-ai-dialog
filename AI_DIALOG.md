@@ -114,9 +114,23 @@ default when no config file exists at all).
 | `anthropic_thinking` | `disabled` | `default` lets the model think (slower) |
 | `local_base_url` | `http://127.0.0.1:11434/v1` | Ollama/llama.cpp/LM Studio |
 | `local_model` | `qwen2.5:1.5b` | any instruct model your server hosts |
+| `language` | *(empty = English)* | generate all NPC dialog in this language (see below) |
 | `style` | *(empty)* | global flavor applied to every NPC (see below) |
 | `timeout_ms` | `10000` | fallback to scripted line after this |
 | `max_tokens` | `200` | reply budget |
+
+### Playing in another language
+
+`language=Italian` (or any language) makes every NPC speak that language,
+following the scripted meaning — so overworld dialog plays like a localized
+version, generated live. It composes with `style` (`language=Italian` +
+`style=tutti sono furiosi` → angry Italian NPCs).
+
+**Scope:** only NPC overworld dialog is translated. Menus, item/move/Pokémon
+names, and battle text come from the English decompilation and stay English;
+a full UI translation is a separate project, not part of this mod. A larger
+local model (e.g. `qwen2.5:3b`) or the Anthropic backend gives noticeably
+better non-English output than the 1.5b model.
 
 ### Global style directive
 

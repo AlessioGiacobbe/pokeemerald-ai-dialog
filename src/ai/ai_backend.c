@@ -29,7 +29,8 @@ struct AiConfig
     char localBaseUrl[256];
     char localModel[64];
     char localKey[256];
-    char style[256]; // global flavor directive applied to every NPC
+    char language[64]; // e.g. "Italian" — all NPC dialog is generated in it
+    char style[256];   // global flavor directive applied to every NPC
     int timeoutMs;
     int maxTokens;
 };
@@ -105,6 +106,7 @@ static void LoadConfig(void)
             else if (strcmp(key, "local_base_url") == 0) snprintf(sConfig.localBaseUrl, sizeof(sConfig.localBaseUrl), "%s", val);
             else if (strcmp(key, "local_model") == 0) snprintf(sConfig.localModel, sizeof(sConfig.localModel), "%s", val);
             else if (strcmp(key, "local_key") == 0) snprintf(sConfig.localKey, sizeof(sConfig.localKey), "%s", val);
+            else if (strcmp(key, "language") == 0) snprintf(sConfig.language, sizeof(sConfig.language), "%s", val);
             else if (strcmp(key, "style") == 0) snprintf(sConfig.style, sizeof(sConfig.style), "%s", val);
             else if (strcmp(key, "timeout_ms") == 0) sConfig.timeoutMs = atoi(val);
             else if (strcmp(key, "max_tokens") == 0) sConfig.maxTokens = atoi(val);
@@ -179,6 +181,13 @@ static void BuildPrompts(const AiDialogRequest *req, char *sysOut, int sysSize,
         "The scripted line is the NPC's canonical knowledge: keep its meaning, facts and "
         "any directions intact, but rephrase it freshly with personality fitting the speaker. "
         "Never break character or mention being an AI.");
+
+    // Generate all dialog in a chosen language (e.g. "Italian"). Note: only
+    // NPC dialog is affected; the game's menus/UI stay English.
+    if (n > 0 && n < sysSize && sConfig.language[0] != '\0')
+        n += snprintf(sysOut + n, sysSize - n,
+                 " Write the line in %s, natural and idiomatic, not a literal translation.",
+                 sConfig.language);
 
     // Global style directive, applied to every NPC (e.g. "speak in Sicilian",
     // "everyone is furious and shouting"). Given strong weight in the prompt.

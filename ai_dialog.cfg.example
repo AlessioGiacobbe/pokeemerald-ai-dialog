@@ -22,6 +22,10 @@ local_model=qwen2.5:1.5b
 #local_key=
 
 # --- shared ---
+# Generate all NPC dialog in this language (menus/UI stay English — those are
+# in the English decompilation). Empty = English. e.g. language=Italian
+language=
+
 # Global style directive applied to EVERY NPC. Leave empty for normal
 # per-character personas. Examples:
 #   style=everyone speaks in an exaggeratedly angry, shouting tone
