@@ -1,0 +1,27 @@
+# AI dialog mod configuration.
+# Copy this file to `ai_dialog.cfg` next to the game executable (or the
+# directory you launch it from) and pick a backend. Without this file the
+# mod stays dormant unless ANTHROPIC_API_KEY is set in the environment.
+
+# --- which backend to use: anthropic | local | off ---
+backend=local
+
+# --- Anthropic API (cloud) ---
+# Key can also come from the ANTHROPIC_API_KEY environment variable.
+#anthropic_key=sk-ant-...
+anthropic_model=claude-opus-5
+# "disabled" (default) skips extended thinking for snappy dialog.
+# Set to "default" to let the model think (slower, marginally better lines).
+anthropic_thinking=disabled
+
+# --- Local OpenAI-compatible server (Ollama, llama.cpp, LM Studio, ...) ---
+# Ollama default:      http://127.0.0.1:11434/v1   (run: ollama pull qwen2.5:1.5b)
+# llama.cpp default:   http://127.0.0.1:8080/v1
+local_base_url=http://127.0.0.1:11434/v1
+local_model=qwen2.5:1.5b
+#local_key=
+
+# --- shared ---
+# How long to wait for a reply before showing the original scripted line.
+timeout_ms=10000
+max_tokens=200

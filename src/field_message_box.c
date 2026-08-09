@@ -5,6 +5,7 @@
 #include "text.h"
 #include "match_call.h"
 #include "field_message_box.h"
+#include "ai/ai_dialog.h"
 
 static EWRAM_DATA u8 sFieldMessageBoxMode = 0;
 
@@ -63,9 +64,23 @@ bool8 ShowFieldMessage(const u8 *str)
 {
     if (sFieldMessageBoxMode != FIELD_MESSAGE_BOX_HIDDEN)
         return FALSE;
+    // AI dialog mod hook: if a backend is configured and this line qualifies,
+    // the box stays open (mode NORMAL, which keeps waitmessage waiting) and a
+    // task prints the model's reply — or the original text — when ready.
+    if (AiDialog_TryStart(str))
+    {
+        sFieldMessageBoxMode = FIELD_MESSAGE_BOX_NORMAL;
+        return TRUE;
+    }
     ExpandStringAndStartDrawFieldMessage(str, TRUE);
     sFieldMessageBoxMode = FIELD_MESSAGE_BOX_NORMAL;
     return TRUE;
+}
+
+// Used by the AI dialog mod to print a deferred message once it arrives.
+void FieldMessage_ShowFromAi(const u8 *str)
+{
+    ExpandStringAndStartDrawFieldMessage(str, TRUE);
 }
 
 static void Task_HidePokenavMessageWhenDone(u8 taskId)
