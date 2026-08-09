@@ -13,6 +13,7 @@
 
 #include "global.h"
 #include "platform.h"
+#include "dev_teleport.h"
 #include "rtc.h"
 #include "gba/defines.h"
 #include "gba/m4a_internal.h"
@@ -765,6 +766,11 @@ void ProcessEvents(void)
                 break;
             case SDLK_o:
                 SetVideoScale(videoScale + 1);
+                break;
+            case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4: case SDLK_5:
+                // Dev teleport to a populated city (Ctrl+1..5) for NPC testing.
+                if (event.key.keysym.mod & (KMOD_LCTRL | KMOD_RCTRL))
+                    DevTeleport_Request(event.key.keysym.sym - SDLK_1);
                 break;
             case SDLK_F12:
                 if (!fullscreenEnabled)

@@ -4,6 +4,7 @@
 #include "coord_event_weather.h"
 #include "daycare.h"
 #include "faraway_island.h"
+#include "dev_teleport.h"
 #include "event_data.h"
 #include "event_object_movement.h"
 #include "event_scripts.h"
@@ -136,6 +137,13 @@ int ProcessPlayerFieldInput(struct FieldInput *input)
     struct MapPosition position;
     u8 playerDirection;
     u16 metatileBehavior;
+
+#ifdef PORTABLE
+    // Dev teleport (Ctrl+1..5): only fires here, i.e. when the player has
+    // normal field control, so the warp is always in a safe context.
+    if (DevTeleport_PollAndWarp())
+        return TRUE;
+#endif
 
     gSpecialVar_LastTalked = 0;
     gSelectedObjectEvent = 0;
