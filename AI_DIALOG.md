@@ -114,5 +114,28 @@ default when no config file exists at all).
 | `anthropic_thinking` | `disabled` | `default` lets the model think (slower) |
 | `local_base_url` | `http://127.0.0.1:11434/v1` | Ollama/llama.cpp/LM Studio |
 | `local_model` | `qwen2.5:1.5b` | any instruct model your server hosts |
+| `style` | *(empty)* | global flavor applied to every NPC (see below) |
 | `timeout_ms` | `10000` | fallback to scripted line after this |
 | `max_tokens` | `200` | reply budget |
+
+### Global style directive
+
+`style=` injects one instruction into every NPC's prompt, so you can recolor
+the whole world at once:
+
+```
+style=everyone speaks in an exaggeratedly angry, shouting tone
+style=speak in Sicilian dialect
+style=talk like a melodramatic Shakespearean actor
+```
+
+You can also set it per-launch without editing the config:
+
+```sh
+AI_DIALOG_STYLE="speak like a pirate" ./pokeemerald_mac
+```
+
+Note: the game's font is ASCII-only, so replies are transliterated to plain
+ASCII (accents like `à`/`é` become `a`/`e`, smart quotes become `'`/`"`).
+Styles that change *tone* render perfectly; styles in a language that needs
+accented characters stay readable but lose the accents.

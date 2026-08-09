@@ -153,8 +153,85 @@ static u8 EncodeChar(char a)
     return GC_EOS; // unknown -> caller skips
 }
 
+// Map a UTF-8 sequence starting at *pp to an ASCII substitute, advancing *pp
+// past it. Returns a short ASCII string ("" to drop). Lets styled/foreign
+// replies (e.g. Italian or Sicilian) degrade to readable ASCII instead of
+// vanishing, since the game charmap has no accented letters.
+static const char *TransliterateUtf8(const char **pp)
+{
+    const unsigned char *p = (const unsigned char *)*pp;
+    unsigned char c = p[0];
+
+    // 2-byte: Latin-1 Supplement (accented Latin letters live in U+00C0..U+00FF).
+    if (c == 0xC3 && p[1] >= 0x80)
+    {
+        unsigned char cp = p[1] + 0x40; // reconstruct U+00Cx..U+00FF low byte
+        *pp += 2;
+        switch (cp)
+        {
+        case 0xC0: case 0xC1: case 0xC2: case 0xC3: case 0xC4: case 0xC5: return "A";
+        case 0xE0: case 0xE1: case 0xE2: case 0xE3: case 0xE4: case 0xE5: return "a";
+        case 0xC8: case 0xC9: case 0xCA: case 0xCB: return "E";
+        case 0xE8: case 0xE9: case 0xEA: case 0xEB: return "e";
+        case 0xCC: case 0xCD: case 0xCE: case 0xCF: return "I";
+        case 0xEC: case 0xED: case 0xEE: case 0xEF: return "i";
+        case 0xD2: case 0xD3: case 0xD4: case 0xD5: case 0xD6: return "O";
+        case 0xF2: case 0xF3: case 0xF4: case 0xF5: case 0xF6: return "o";
+        case 0xD9: case 0xDA: case 0xDB: case 0xDC: return "U";
+        case 0xF9: case 0xFA: case 0xFB: case 0xFC: return "u";
+        case 0xD1: return "N"; case 0xF1: return "n";
+        case 0xC7: return "C"; case 0xE7: return "c";
+        default: return "";
+        }
+    }
+    // 3-byte: common General Punctuation (smart quotes, dashes, ellipsis).
+    if (c == 0xE2 && p[1] == 0x80)
+    {
+        unsigned char t = p[2];
+        *pp += 3;
+        switch (t)
+        {
+        case 0x98: case 0x99: return "'";   // ' '
+        case 0x9C: case 0x9D: return "\"";  // " "
+        case 0x93: case 0x94: return "-";   // en/em dash
+        case 0xA6: return "...";            // ellipsis
+        default: return "";
+        }
+    }
+    // Unknown multibyte: drop just this byte.
+    *pp += 1;
+    return "";
+}
+
 int AiText_EncodeAsciiToGame(u8 *dest, int destSize, const char *src)
 {
+    char ascii[1024];
+    int ai = 0;
+
+    // First pass: fold whitespace and transliterate to plain ASCII.
+    while (*src != '\0' && ai < (int)sizeof(ascii) - 4)
+    {
+        unsigned char c = (unsigned char)*src;
+        if (c == '\n' || c == '\r' || c == '\t')
+        {
+            ascii[ai++] = ' ';
+            src++;
+        }
+        else if (c >= 0x80)
+        {
+            const char *sub = TransliterateUtf8(&src);
+            while (*sub && ai < (int)sizeof(ascii) - 4)
+                ascii[ai++] = *sub++;
+        }
+        else
+        {
+            ascii[ai++] = *src++;
+        }
+    }
+    ascii[ai] = '\0';
+    src = ascii;
+
+    {
     int di = 0;
     int col = 0;
     int line = 0;
@@ -163,14 +240,6 @@ int AiText_EncodeAsciiToGame(u8 *dest, int destSize, const char *src)
     while (*src != '\0' && di < destSize - 2)
     {
         char a = *src++;
-
-        // Fold whitespace/newlines from the model into single spaces.
-        if (a == '\n' || a == '\r' || a == '\t')
-            a = ' ';
-        // Skip UTF-8 continuation/lead bytes for the few non-ASCII chars a
-        // model might emit; smart quotes etc. degrade to nothing.
-        if ((unsigned char)a >= 0x80)
-            continue;
 
         if (a == ' ')
         {
@@ -201,4 +270,5 @@ int AiText_EncodeAsciiToGame(u8 *dest, int destSize, const char *src)
     }
     dest[di++] = GC_EOS;
     return di;
+    }
 }

@@ -29,6 +29,7 @@ struct AiConfig
     char localBaseUrl[256];
     char localModel[64];
     char localKey[256];
+    char style[256]; // global flavor directive applied to every NPC
     int timeoutMs;
     int maxTokens;
 };
@@ -104,6 +105,7 @@ static void LoadConfig(void)
             else if (strcmp(key, "local_base_url") == 0) snprintf(sConfig.localBaseUrl, sizeof(sConfig.localBaseUrl), "%s", val);
             else if (strcmp(key, "local_model") == 0) snprintf(sConfig.localModel, sizeof(sConfig.localModel), "%s", val);
             else if (strcmp(key, "local_key") == 0) snprintf(sConfig.localKey, sizeof(sConfig.localKey), "%s", val);
+            else if (strcmp(key, "style") == 0) snprintf(sConfig.style, sizeof(sConfig.style), "%s", val);
             else if (strcmp(key, "timeout_ms") == 0) sConfig.timeoutMs = atoi(val);
             else if (strcmp(key, "max_tokens") == 0) sConfig.maxTokens = atoi(val);
         }
@@ -113,6 +115,13 @@ static void LoadConfig(void)
     envKey = getenv("ANTHROPIC_API_KEY");
     if (envKey != NULL && envKey[0] != '\0' && sConfig.anthropicKey[0] == '\0')
         snprintf(sConfig.anthropicKey, sizeof(sConfig.anthropicKey), "%s", envKey);
+
+    // AI_DIALOG_STYLE overrides the config's style= for quick experimentation.
+    {
+        const char *envStyle = getenv("AI_DIALOG_STYLE");
+        if (envStyle != NULL && envStyle[0] != '\0')
+            snprintf(sConfig.style, sizeof(sConfig.style), "%s", envStyle);
+    }
 
     // No config file but a key in the environment: default to Anthropic.
     if (f == NULL && sConfig.anthropicKey[0] != '\0')
@@ -163,13 +172,20 @@ static void BuildPrompts(const AiDialogRequest *req, char *sysOut, int sysSize,
 {
     const struct AiMemorySlot *mem = FindMemory(req->npcKey, FALSE);
 
-    snprintf(sysOut, sysSize,
+    int n = snprintf(sysOut, sysSize,
         "You are writing one line of NPC dialog for Pokemon Emerald. "
         "Reply with only the spoken line: at most 2 short sentences and 150 characters. "
-        "Plain ASCII only, no quotes around the line, no emoji, no stage directions. "
+        "Prefer plain ASCII, no quotes around the line, no emoji, no stage directions. "
         "The scripted line is the NPC's canonical knowledge: keep its meaning, facts and "
         "any directions intact, but rephrase it freshly with personality fitting the speaker. "
         "Never break character or mention being an AI.");
+
+    // Global style directive, applied to every NPC (e.g. "speak in Sicilian",
+    // "everyone is furious and shouting"). Given strong weight in the prompt.
+    if (n > 0 && n < sysSize && sConfig.style[0] != '\0')
+        snprintf(sysOut + n, sysSize - n,
+                 " IMPORTANT STYLE — apply this to the line no matter what: %s",
+                 sConfig.style);
 
     snprintf(usrOut, usrSize,
         "Location: %s\n"
