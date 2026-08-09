@@ -90,4 +90,8 @@ for i, sym in enumerate(item_desc_syms):
         sym2it[sym] = decode(rom[p:p+200])
 regen_by_symbol("src/data/text/item_descriptions.h", sym2it)
 
+# --- nature names: 25 statics in nature index order (pointer array in ROM) ---
+PTR_NATURES = 0x619674
+regen("src/data/text/nature_names.h", ptrs(PTR_NATURES, 25, span=12))
+
 print("done")
