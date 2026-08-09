@@ -1,0 +1,221 @@
+# Native macOS build of the pokeemerald PC port (SDL2, arm64/x86_64).
+#
+# Differences from Makefile_pc (the mingw/Windows build):
+#  - Host clang instead of a mingw cross toolchain; C files are compiled
+#    with `clang -c` instead of the cpp/cc1/as three-step.
+#  - Data assembly is translated for Darwin's LLVM assembler:
+#      * `;` is a comment on Darwin, not a statement separator, so
+#        semicolons outside quotes are split into real newlines
+#        (fixes `label: ; .global label` and `enum A; enum B; ...`).
+#      * ELF `.section .rodata`-style directives become `.data`.
+#      * A leading `.data` keeps pointer relocations out of __TEXT
+#        (absolute relocs in __TEXT are not allowed on macOS).
+#      * `-Wa,-L` keeps symbols starting with "L" (LittlerootTown_...)
+#        which Mach-O assemblers otherwise treat as discardable locals.
+#  - Every assembly-built object is run through tools/machopfx to prefix
+#    all its symbols with `_` (Mach-O C symbol convention), the Mach-O
+#    equivalent of the COFF `objcopy --prefix-symbol _` trick.
+#
+# Usage: make -f Makefile_mac -j8
+
+CC       := clang
+CPP_C    := clang -E
+CPP_ASM  := clang -E -x assembler-with-cpp
+# songs.mk uses $(AS) $(ASFLAGS) directly, so keep their names
+AS      := clang -c -x assembler -
+ASFLAGS := -Wa,-L
+FIX_UNDERSCORE := python3 tools/machopfx/machopfx.py
+
+# Prepend .data, split statements on ';' (outside double quotes),
+# map ELF section directives to .data
+ASM_PSEUDO_OP_CONV := perl -pe 'BEGIN{print "\t.data\n"} s/;(?=(?:[^"]*"[^"]*")*[^"]*$$)/\n/g; s/^\s*\.section\b.*$$/\t.data/'
+
+BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
+SDL_CFLAGS := $(shell sdl2-config --cflags) -I$(BREW_PREFIX)/include
+SDL_LIBS   := $(shell sdl2-config --libs)
+
+MODERN          := 1
+TARGET_PLATFORM := PLATFORM_SDL2
+TILE_RENDERER   := RENDERER_NONE
+
+SHELL := /bin/bash -o pipefail
+
+ROM     := pokeemerald_mac
+OBJ_DIR := build/mac
+
+all: rom
+
+C_SUBDIR = src
+GFLIB_SUBDIR = gflib
+DATA_SRC_SUBDIR = src/data
+DATA_ASM_SUBDIR = data
+SONG_SUBDIR = sound/songs
+MID_SUBDIR = sound/songs/midi
+SAMPLE_SUBDIR = sound/direct_sound_samples
+CRY_SUBDIR = sound/direct_sound_samples/cries
+
+C_BUILDDIR = $(OBJ_DIR)/$(C_SUBDIR)
+GFLIB_BUILDDIR = $(OBJ_DIR)/$(GFLIB_SUBDIR)
+DATA_ASM_BUILDDIR = $(OBJ_DIR)/$(DATA_ASM_SUBDIR)
+SONG_BUILDDIR = $(OBJ_DIR)/$(SONG_SUBDIR)
+MID_BUILDDIR = $(OBJ_DIR)/$(MID_SUBDIR)
+
+# The -Wno-error downgrades restore gcc's lenience: this codebase relies on
+# implicit declarations and int/pointer conversions that clang 16+ hard-errors on.
+override CFLAGS += -std=gnu99 -fcommon -fno-builtin -Wno-trigraphs \
+  -Wparentheses -Wno-unused-function -Wno-pointer-sign -g -O0 \
+  -Wno-error=implicit-function-declaration -Wno-error=implicit-int \
+  -Wno-error=int-conversion -Wno-error=incompatible-pointer-types \
+  -Wno-error=incompatible-function-pointer-types
+
+CPPFLAGS := -iquote include -iquote $(GFLIB_SUBDIR) -Wno-trigraphs \
+  -D NONMATCHING -D PORTABLE -D $(TARGET_PLATFORM) -D $(TILE_RENDERER) \
+  -D VER_64BIT -D MODERN=$(MODERN) -D UBFIX $(SDL_CFLAGS)
+
+AUTO_GEN_TARGETS :=
+include make_tools.mk
+
+GFX := $(TOOLS_DIR)/gbagfx/gbagfx
+AIF := $(TOOLS_DIR)/aif2pcm/aif2pcm
+MID := $(TOOLS_DIR)/mid2agb/mid2agb
+SCANINC := $(TOOLS_DIR)/scaninc/scaninc
+PREPROC := $(TOOLS_DIR)/preproc/preproc
+MAPJSON := $(TOOLS_DIR)/mapjson/mapjson
+JSONPROC := $(TOOLS_DIR)/jsonproc/jsonproc
+
+MAKEFLAGS += --no-print-directory
+
+.SUFFIXES:
+.SECONDARY:
+.DELETE_ON_ERROR:
+.SECONDEXPANSION:
+
+.PHONY: all rom clean tidy
+
+infoshell = $(foreach line, $(shell $1 | sed "s/ /__SPACE__/g"), $(info $(subst __SPACE__, ,$(line))))
+
+# Build tools + generated headers when building the rom
+ifeq (,$(filter-out all rom,$(MAKECMDGOALS)))
+$(call infoshell, $(MAKE) -f make_tools.mk)
+$(call infoshell, $(MAKE) -f Makefile_mac generated)
+endif
+
+ifeq (,$(filter-out all rom,$(MAKECMDGOALS)))
+NODEP ?= 0
+else
+NODEP ?= 1
+endif
+
+C_SRCS_IN := $(wildcard $(C_SUBDIR)/*.c $(C_SUBDIR)/*/*.c $(C_SUBDIR)/*/*/*.c)
+C_SRCS := $(foreach src,$(C_SRCS_IN),$(if $(findstring .inc.c,$(src)),,$(src)))
+C_OBJS := $(patsubst $(C_SUBDIR)/%.c,$(C_BUILDDIR)/%.o,$(C_SRCS))
+
+GFLIB_SRCS := $(wildcard $(GFLIB_SUBDIR)/*.c)
+GFLIB_OBJS := $(patsubst $(GFLIB_SUBDIR)/%.c,$(GFLIB_BUILDDIR)/%.o,$(GFLIB_SRCS))
+
+# data/*.s except ones generated with specific rules
+REGULAR_DATA_ASM_SRCS := $(filter-out $(DATA_ASM_SUBDIR)/maps.s $(DATA_ASM_SUBDIR)/map_events.s, $(wildcard $(DATA_ASM_SUBDIR)/*.s))
+DATA_ASM_SRCS := $(wildcard $(DATA_ASM_SUBDIR)/*.s)
+DATA_ASM_OBJS := $(patsubst $(DATA_ASM_SUBDIR)/%.s,$(DATA_ASM_BUILDDIR)/%.o,$(DATA_ASM_SRCS))
+
+SONG_SRCS := $(wildcard $(SONG_SUBDIR)/*.s)
+SONG_OBJS := $(patsubst $(SONG_SUBDIR)/%.s,$(SONG_BUILDDIR)/%.o,$(SONG_SRCS))
+
+MID_SRCS := $(wildcard $(MID_SUBDIR)/*.mid)
+MID_OBJS := $(patsubst $(MID_SUBDIR)/%.mid,$(MID_BUILDDIR)/%.o,$(MID_SRCS))
+
+OBJS := $(C_OBJS) $(GFLIB_OBJS) $(DATA_ASM_OBJS) $(SONG_OBJS) $(MID_OBJS)
+
+SUBDIRS := $(sort $(dir $(OBJS)))
+$(shell mkdir -p $(SUBDIRS))
+
+rom: $(ROM)
+
+clean: tidy
+	rm -f $(SAMPLE_SUBDIR)/*.bin
+	rm -f $(CRY_SUBDIR)/*.bin
+	rm -f $(MID_SUBDIR)/*.s
+	find . \( -iname '*.1bpp' -o -iname '*.4bpp' -o -iname '*.8bpp' -o -iname '*.gbapal' -o -iname '*.lz' -o -iname '*.rl' \) -exec rm {} +
+
+tidy:
+	rm -f $(ROM)
+	rm -rf $(OBJ_DIR)
+
+include graphics_file_rules.mk
+include map_data_rules.mk
+include spritesheet_rules.mk
+include json_data_rules.mk
+include songs.mk
+
+generated: $(AUTO_GEN_TARGETS) $(OBJ_DIR)/specials_constants.inc
+
+# SPECIAL_* ids are defined in data/specials.inc via .set on symbols that live
+# in another object. `.short SPECIAL_x` would then be a 16-bit cross-object
+# relocation, which Mach-O arm64 cannot represent. Emit them as absolute
+# assembler constants and inject into every data-asm unit so no reloc is needed.
+$(OBJ_DIR)/specials_constants.inc: data/specials.inc
+	awk 'BEGIN{n=0} /^[[:space:]]+def_special /{print ".set SPECIAL_" $$2 ", " n; n++}' $< > $@
+
+SPECIALS_INC := $(OBJ_DIR)/specials_constants.inc
+
+%.s: ;
+%.png: ;
+%.pal: ;
+%.aif: ;
+
+%.1bpp: %.png  ; $(GFX) $< $@
+%.4bpp: %.png  ; $(GFX) $< $@
+%.8bpp: %.png  ; $(GFX) $< $@
+%.gbapal: %.pal ; $(GFX) $< $@
+%.gbapal: %.png ; $(GFX) $< $@
+%.lz: % ; $(GFX) $< $@
+%.rl: % ; $(GFX) $< $@
+$(CRY_SUBDIR)/%.bin: $(CRY_SUBDIR)/%.aif ; $(AIF) $< $@ --compress
+sound/%.bin: sound/%.aif ; $(AIF) $< $@
+
+ifeq ($(NODEP),1)
+$(C_BUILDDIR)/%.o: c_dep :=
+else
+$(C_BUILDDIR)/%.o: c_dep = $(shell [[ -f $(C_SUBDIR)/$*.c ]] && $(SCANINC) -I include -I tools/agbcc/include -I gflib $(C_SUBDIR)/$*.c)
+endif
+
+$(C_BUILDDIR)/%.o : $(C_SUBDIR)/%.c $$(c_dep)
+	@$(CPP_C) $(CPPFLAGS) $< -o $(C_BUILDDIR)/$*.i
+	@$(PREPROC) $(C_BUILDDIR)/$*.i charmap.txt > $(C_BUILDDIR)/$*.ic
+	$(CC) $(CFLAGS) -c -x c $(C_BUILDDIR)/$*.ic -o $@
+
+ifeq ($(NODEP),1)
+$(GFLIB_BUILDDIR)/%.o: c_dep :=
+else
+$(GFLIB_BUILDDIR)/%.o: c_dep = $(shell [[ -f $(GFLIB_SUBDIR)/$*.c ]] && $(SCANINC) -I include -I tools/agbcc/include -I gflib $(GFLIB_SUBDIR)/$*.c)
+endif
+
+$(GFLIB_BUILDDIR)/%.o : $(GFLIB_SUBDIR)/%.c $$(c_dep)
+	@$(CPP_C) $(CPPFLAGS) $< -o $(GFLIB_BUILDDIR)/$*.i
+	@$(PREPROC) $(GFLIB_BUILDDIR)/$*.i charmap.txt > $(GFLIB_BUILDDIR)/$*.ic
+	$(CC) $(CFLAGS) -c -x c $(GFLIB_BUILDDIR)/$*.ic -o $@
+
+ifeq ($(NODEP),1)
+$(DATA_ASM_BUILDDIR)/%.o: $(DATA_ASM_SUBDIR)/%.s $(SPECIALS_INC)
+	{ cat $(SPECIALS_INC); $(PREPROC) $< charmap.txt | $(CPP_ASM) - -I include | $(PREPROC) -ie $< charmap.txt | $(ASM_PSEUDO_OP_CONV); } | $(AS) $(ASFLAGS) -o $@
+	$(FIX_UNDERSCORE) $@
+else
+define DATA_ASM_DEP
+$1: $2 $(SPECIALS_INC) $$(shell $(SCANINC) -I include -I "" $2)
+	{ cat $(SPECIALS_INC); $$(PREPROC) $$< charmap.txt | $$(CPP_ASM) - -I include | $$(PREPROC) -ie $$< charmap.txt | $$(ASM_PSEUDO_OP_CONV); } | $$(AS) $$(ASFLAGS) -o $$@
+	$$(FIX_UNDERSCORE) $$@
+endef
+$(foreach src, $(REGULAR_DATA_ASM_SRCS), $(eval $(call DATA_ASM_DEP,$(patsubst $(DATA_ASM_SUBDIR)/%.s,$(DATA_ASM_BUILDDIR)/%.o, $(src)),$(src))))
+endif
+
+$(SONG_BUILDDIR)/%.o: $(SONG_SUBDIR)/%.s
+	$(ASM_PSEUDO_OP_CONV) $< | $(AS) $(ASFLAGS) -I sound -o $@
+	$(FIX_UNDERSCORE) $@
+
+# The game's script byte-streams interleave opcodes and 8-byte pointers with no
+# padding, so pointer relocations land unaligned — which arm64 ld64 rejects.
+# A non-PIE executable resolves internal pointers to absolute addresses at link
+# time (no load-time fixups), so the loader never alignment-checks them; -no_pie
+# and -no_fixup_chains together make that happen.
+$(ROM): $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) $(SDL_LIBS) -lcurl -Wl,-no_pie -Wl,-no_fixup_chains -o $@

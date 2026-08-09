@@ -51,7 +51,8 @@ void DoBorderChange(u8 border, u32 speed);
 #define NAKED __attribute__((naked))
 
 // IDE support
-#if defined (__APPLE__) || defined (__CYGWIN__) || defined(__INTELLISENSE__) || defined (_MSC_VER)
+// (not applied when actually compiling the portable build on macOS)
+#if (defined (__APPLE__) && !defined(PORTABLE)) || defined (__CYGWIN__) || defined(__INTELLISENSE__) || defined (_MSC_VER)
 // We define these when using certain IDEs to fool preproc
 #define _(x)        {x}
 #define __(x)       {x}

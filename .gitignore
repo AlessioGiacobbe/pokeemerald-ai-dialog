@@ -39,3 +39,8 @@ prefabs.json
 *.diff
 *.sym
 *.js
+
+# macOS native build
+pokeemerald_mac
+*.sav
+ai_dialog.cfg

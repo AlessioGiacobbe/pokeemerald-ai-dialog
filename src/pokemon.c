@@ -3702,7 +3702,12 @@ u32 GetMonData3(struct Pokemon *mon, s32 field, u8 *data)
     return ret;
 }
 
+#ifdef __APPLE__
+// Mach-O does not support ELF symbol aliases; use a real wrapper instead.
+u32 GetMonData2(struct Pokemon *mon, s32 field) { return GetMonData3(mon, field, NULL); }
+#else
 u32 GetMonData2(struct Pokemon *mon, s32 field) __attribute__((alias("GetMonData3")));
+#endif
 
 /* GameFreak called GetBoxMonData with either 2 or 3 arguments, for type
  * safety we have a GetBoxMonData macro (in include/pokemon.h) which
@@ -4064,7 +4069,11 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
     return retVal;
 }
 
+#ifdef __APPLE__
+u32 GetBoxMonData2(struct BoxPokemon *boxMon, s32 field) { return GetBoxMonData3(boxMon, field, NULL); }
+#else
 u32 GetBoxMonData2(struct BoxPokemon *boxMon, s32 field) __attribute__((alias("GetBoxMonData3")));
+#endif
 
 #define SET8(lhs) (lhs) = *data
 #define SET16(lhs) (lhs) = data[0] + (data[1] << 8)

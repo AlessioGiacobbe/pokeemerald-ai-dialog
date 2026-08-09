@@ -18,20 +18,26 @@
 	.else
 	.byte (\subpriority_offset & 0x7F)
 	.endif
-	.byte (.Lsprite_\@_2 - .Lsprite_\@_1) / 2
-.Lsprite_\@_1:
+	/* Count args with .irp instead of (label2 - label1) / 2: LLVM MC cannot
+	   divide a forward-reference label difference at parse time. */
+	.set argv_count, 0
+	.irp arg, \argv
+	.set argv_count, argv_count + 1
+	.endr
+	.byte argv_count
 	.short \argv
-.Lsprite_\@_2:
 	.endm
 
 	.macro createvisualtask addr:req, priority:req, argv:vararg
 	.byte 0x03
 	.quad \addr
 	.byte \priority
-	.byte (.Lcreatetask_\@_2 - .Lcreatetask_\@_1) / 2
-.Lcreatetask_\@_1:
+	.set argv_count, 0
+	.irp arg, \argv
+	.set argv_count, argv_count + 1
+	.endr
+	.byte argv_count
 	.short \argv
-.Lcreatetask_\@_2:
 	.endm
 
 	.macro delay frames:req
@@ -176,10 +182,12 @@
 	.macro createsoundtask addr:req, argv:vararg
 	.byte 0x1F
 	.quad \addr
-	.byte (.Lcreatetask_1F_\@_2 - .Lcreatetask_1F_\@_1) / 2
-.Lcreatetask_1F_\@_1:
+	.set argv_count, 0
+	.irp arg, \argv
+	.set argv_count, argv_count + 1
+	.endr
+	.byte argv_count
 	.short \argv
-.Lcreatetask_1F_\@_2:
 	.endm
 
 	.macro waitsound

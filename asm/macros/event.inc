@@ -740,24 +740,30 @@
 	/* Starts a single trainer battle. Takes a trainer, intro text, loss text, and an optional event script.*/
 	/* When used with an event script, you can also pass in an optional flag to disable music*/
 	.macro trainerbattle_single trainer:req, intro_text:req, lose_text:req, event_script=FALSE, music=TRUE
-	.if \event_script == FALSE
+	/* Textual comparison (.ifc) instead of `== FALSE`: the operands are label names, */
+	/* which only GNU as can "compare" via identity folding; LLVM MC cannot. */
+	.ifc \event_script, FALSE
 	trainerbattle TRAINER_BATTLE_SINGLE, \trainer, 0, \intro_text, \lose_text
-	.elseif \music == TRUE
+	.else
+	.ifc \music, TRUE
 	trainerbattle TRAINER_BATTLE_CONTINUE_SCRIPT, \trainer, 0, \intro_text, \lose_text, \event_script
 	.else
 	trainerbattle TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC, \trainer, 0, \intro_text, \lose_text, \event_script
+	.endif
 	.endif
 	.endm
 
 	/* Starts a double trainer battle. Takes a trainer, intro text, loss text, text for when you have too few pokemon*/
 	/* and an optional event script. When used with an event script you can pass in an optional flag to disable music*/
 	.macro trainerbattle_double trainer:req, intro_text:req, lose_text:req, not_enough_pkmn_text:req, event_script=FALSE, music=TRUE
-	.if \event_script == FALSE
+	.ifc \event_script, FALSE
 	trainerbattle TRAINER_BATTLE_DOUBLE, \trainer, 0, \intro_text, \lose_text, \not_enough_pkmn_text
-	.elseif \music == TRUE
+	.else
+	.ifc \music, TRUE
 	trainerbattle TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE, \trainer, 0, \intro_text, \lose_text, \not_enough_pkmn_text, \event_script
 	.else
 	trainerbattle TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC, \trainer, 0, \intro_text, \lose_text, \not_enough_pkmn_text, \event_script
+	.endif
 	.endif
 	.endm
 
@@ -1025,6 +1031,11 @@
 	/* If given anything else it will output it directly.*/
 	/* Note: Because the STR_VAR_# arguments given to this macro are not part of a processed string they are not*/
 	/*       replaced with their charmap values, they are just passed as the literal characters "STR_VAR_#".*/
+	/* These sentinel values are never emitted; only identity comparisons below matter. They are defined */
+	/* as absolute constants because not all assemblers (e.g. LLVM MC) can fold `undef == undef`. */
+	.set STR_VAR_1, 0x7FF1
+	.set STR_VAR_2, 0x7FF2
+	.set STR_VAR_3, 0x7FF3
 	.macro stringvar id:req
 	.if \id == STR_VAR_1
 		.byte 0

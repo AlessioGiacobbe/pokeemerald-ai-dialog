@@ -2,6 +2,11 @@
 #define GUARD_CONSTANTS_TMS_HMS_INC
 
 #include "constants/tms_hms.h"
+/* items.h defines ITEM_TM01/ITEM_HM01 as numbers. Without it the enum_start
+   base symbol stays undefined; GNU as tolerated the resulting symbolic
+   expression chains, but LLVM MC (macOS) crashes on them and Mach-O cannot
+   represent the small absolute relocations they produce. */
+#include "constants/items.h"
 
 /* Expands to:
 * enum_start ITEM_TM01

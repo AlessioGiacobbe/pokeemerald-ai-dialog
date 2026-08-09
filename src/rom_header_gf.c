@@ -95,7 +95,12 @@ struct GFRomHeader
 
 // This seems to need to be in the text section for some reason.
 // To avoid a changed section attributes warning it's put in a special .text.consts section.
+// (Mach-O requires segment,section syntax; the header only matters for real GBA ROMs.)
+#ifdef __APPLE__
+__attribute__((section("__TEXT,__consts")))
+#else
 __attribute__((section(".text.consts")))
+#endif
 static const struct GFRomHeader sGFRomHeader = {
     .version = GAME_VERSION,
     .language = GAME_LANGUAGE,
