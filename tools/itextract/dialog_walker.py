@@ -30,38 +30,52 @@ def u16(rom, a): return struct.unpack_from("<H", rom, a - B)[0]
 def u32(rom, a): return struct.unpack_from("<I", rom, a - B)[0]
 def isrom(p): return B <= p < B + len(en)
 
-# --- 1. command length table (opcode -> (length, [ptr_offsets])) from event.inc
-def parse_cmd_table(path):
-    txt = open(path).read()
-    blocks = re.findall(r'\.macro\s+(\w+)([^\0]*?)\.endm', txt)
-    table = {}
-    opcode = -1
-    dbg = {}
-    for name, body in blocks:
-        lines = [l.split("@")[0].strip() for l in body.splitlines()]
-        # primitive command = body emits exactly the opcode via `.byte SCR_OP_...`
-        if not any(re.match(r'\.byte\s+SCR_OP_', l) for l in lines):
-            continue
-        opcode += 1
-        dbg[name] = opcode
-        joined = "\n".join(lines)
-        variable = (".if" in joined or ".elseif" in joined or ".rept" in joined
-                    or ".irp" in joined)
-        length = 0; ptr_offs = []; ok = True
-        for d in lines:
-            if not d: continue
-            if d.startswith(".byte"):   length += 1
-            elif d.startswith(".2byte") or d.startswith(".short"): length += 2
-            elif d.startswith(".4byte"): ptr_offs.append(length); length += 4
-            elif d.startswith(".endm"): pass
-            elif d.startswith("."): ok = False
-        table[opcode] = ((length if (ok and not variable) else None), ptr_offs)
-    # sanity: loadword must be opcode 0x0F
-    assert dbg.get("loadword") == 0x0F, f"loadword opcode = {dbg.get('loadword')} (expected 15)"
-    return table
+# --- 1. command table: opcodes from script_cmd_table.inc (authoritative),
+#     per-command fixed length + pointer offsets from event.inc segments.
+EN_TBL = "/Users/alessiogiacobbe/pokeemerald-en-ref/data/script_cmd_table.inc"
+SIZ = {".byte": 1, ".2byte": 2, ".short": 2, ".4byte": 4}
 
-CMD = parse_cmd_table(EN_INC)
-CALL, GOTO, GOTO_IF, CALL_IF = 0x04, 0x05, 0x06, 0x07
+def parse_cmd_table(inc, tbl):
+    name2op = {}
+    for line in open(tbl):
+        m = re.search(r'script_cmd_table_entry\s+(SCR_OP_\w+)\s+\S+.*@\s*0x([0-9A-Fa-f]+)', line)
+        if m:
+            name2op[m.group(1)] = int(m.group(2), 16)
+    table = {}
+    txt = open(inc).read()
+    for mm in re.finditer(r'\.macro\s+\w+([^\0]*?)\.endm', txt):
+        lines = [l.split("@")[0].strip() for l in mm.group(1).splitlines()]
+        j = 0
+        while j < len(lines):
+            m = re.match(r'\.byte\s+(SCR_OP_\w+)$', lines[j])
+            if not m or m.group(1) not in name2op:
+                j += 1; continue
+            op = name2op[m.group(1)]
+            length = 0; ptrs = []; k = j
+            while k < len(lines):
+                key = lines[k].split()[0] if lines[k] else ""
+                if key in SIZ:
+                    if key == ".4byte": ptrs.append(length)
+                    length += SIZ[key]; k += 1
+                else:
+                    break
+            table.setdefault(op, (length, ptrs))  # first (fixed) form wins
+            j = k if k > j else j + 1
+    return table, name2op
+
+CMD, NAME2OP = parse_cmd_table(EN_INC, EN_TBL)
+assert NAME2OP.get("SCR_OP_LOAD_WORD") == 0x0F, NAME2OP.get("SCR_OP_LOAD_WORD")
+CALL   = NAME2OP["SCR_OP_CALL"]
+GOTO   = NAME2OP["SCR_OP_GOTO"]
+GOTO_IF = NAME2OP["SCR_OP_GOTO_IF"]
+CALL_IF = NAME2OP["SCR_OP_CALL_IF"]
+TB_OP  = NAME2OP["SCR_OP_TRAINERBATTLE"]
+# trainerbattle type -> (total_len, [text ptr offsets], [script ptr offsets]); header=6
+TB = {0:(14,[6,10],[]), 1:(18,[6,10],[14]), 2:(18,[6,10],[14]), 3:(10,[6],[]),
+      4:(18,[6,10,14],[]), 5:(14,[6,10],[]), 6:(22,[6,10,14],[18]), 7:(18,[6,10,14],[]),
+      8:(22,[6,10,14],[18]), 9:(14,[6,10],[]), 10:(14,[6,10],[]), 11:(14,[6,10],[]),
+      12:(14,[6,10],[])}
+globals()['_OPNAMES'] = {v: k for k, v in NAME2OP.items()}
 
 # --- 2. EN text symbols: address -> symbol name
 def load_text_syms(elf):
@@ -105,6 +119,9 @@ def decode_source(off):
 # --- 3. parallel walk
 result = {}          # en_symbol -> italian text
 visited = set()
+from collections import Counter
+stop_cause = Counter()   # opcode -> times it stopped a walk
+OPNAME = {}              # opcode -> macro name (for reporting)
 
 def walk_script(en_a, it_a, depth=0):
     if depth > 40 or en_a in visited or not isrom(en_a) or not isrom(it_a):
@@ -118,8 +135,23 @@ def walk_script(en_a, it_a, depth=0):
             return
         if op == 0x02 or op == 0x03:  # end / return
             return
+        if op == TB_OP:  # trainerbattle: length + text/script pointers vary by type
+            fmt = TB.get(u8(en, en_a + p + 1))
+            if fmt is None:
+                stop_cause[op] += 1; return
+            length, text_offs, scr_offs = fmt
+            for off in text_offs:
+                ep = u32(en, en_a + p + off); ip = u32(it, it_a + p + off)
+                if ep in TEXTSYMS and isrom(ip):
+                    t = decode_source(ip - B)
+                    if t is not None: result[TEXTSYMS[ep]] = t
+            for off in scr_offs:
+                ep = u32(en, en_a + p + off); ip = u32(it, it_a + p + off)
+                if isrom(ep) and isrom(ip): walk_script(ep, ip, depth + 1)
+            p += length; continue
         spec = CMD.get(op)
         if spec is None or spec[0] is None:
+            stop_cause[op]+=1
             return  # unknown/variable command: stop this branch safely
         length, ptr_offs = spec
         for off in ptr_offs:
