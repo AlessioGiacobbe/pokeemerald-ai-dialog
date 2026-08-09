@@ -17,7 +17,8 @@ LANG_="${2:-}"
 MODEL="${3:-qwen2.5:3b}"
 URL="http://127.0.0.1:11434/v1/chat/completions"
 
-SYS="You are writing one line of NPC dialog for Pokemon Emerald. Reply with only the spoken line, at most 2 short sentences. Keep the scripted meaning and any directions. No stage directions, no quotes around the line. Never break character."
+TEMP="${TEMP:-0.9}"
+SYS="You rewrite one line of NPC dialog for Pokemon Emerald. Reply with only the spoken line, at most 2 short sentences. No stage directions, no quotes. Keep the underlying facts/directions, but the STYLE is the top priority: fully commit to it, even rewriting drastically. Never break character."
 [ -n "$LANG_" ] && SYS="$SYS Write the line in $LANG_, natural and idiomatic."
 [ -n "$STYLE" ] && SYS="$SYS IMPORTANT STYLE - apply no matter what: $STYLE"
 
@@ -34,12 +35,14 @@ echo "model=$MODEL  language=${LANG_:-English}  style=${STYLE:-<none>}"
 echo "------------------------------------------------------------"
 for s in "${SAMPLES[@]}"; do
   who="${s%%|*}"; line="${s#*|}"
-  usr="Speaker: $who. Scripted line: $line Write the speaker line."
+  usr="Speaker: $who. Scripted line: \"$line\""$'\n'
+  [ -n "$STYLE" ] && usr="${usr}Rewrite it fully in this style, no exceptions: $STYLE"$'\n'
+  usr="${usr}Write the speaker's line."
   body=$(python3 -c '
 import json,sys
-print(json.dumps({"model":sys.argv[1],"max_tokens":200,
+print(json.dumps({"model":sys.argv[1],"max_tokens":200,"temperature":float(sys.argv[4]),
  "messages":[{"role":"system","content":sys.argv[2]},
-             {"role":"user","content":sys.argv[3]}]}))' "$MODEL" "$SYS" "$usr")
+             {"role":"user","content":sys.argv[3]}]}))' "$MODEL" "$SYS" "$usr" "$TEMP")
   out=$(curl -s "$URL" -H "content-type: application/json" -d "$body" \
         | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["choices"][0]["message"]["content"])' 2>/dev/null || echo "(error)")
   printf "%-14s %s\n" "$who:" "$out"

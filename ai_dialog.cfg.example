@@ -38,3 +38,7 @@ style=
 # How long to wait for a reply before showing the original scripted line.
 timeout_ms=10000
 max_tokens=200
+
+# Local backend only: sampling temperature. Higher (0.9-1.2) makes the model
+# commit harder to a style/persona; lower (0.3-0.6) is more literal/stable.
+temperature=0.9

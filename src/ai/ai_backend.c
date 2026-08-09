@@ -33,6 +33,7 @@ struct AiConfig
     char style[256];   // global flavor directive applied to every NPC
     int timeoutMs;
     int maxTokens;
+    double temperature; // local backend only; higher = commits harder to a persona
 };
 
 // One remembered exchange per NPC so repeat conversations stay coherent.
@@ -77,6 +78,7 @@ static void LoadConfig(void)
     sConfig.timeoutMs = 10000;
     sConfig.maxTokens = 200;
     sConfig.anthropicThinking = 0;
+    sConfig.temperature = 0.9; // punchy by default so styles land harder
 
     f = fopen("ai_dialog.cfg", "r");
     if (f != NULL)
@@ -110,6 +112,7 @@ static void LoadConfig(void)
             else if (strcmp(key, "style") == 0) snprintf(sConfig.style, sizeof(sConfig.style), "%s", val);
             else if (strcmp(key, "timeout_ms") == 0) sConfig.timeoutMs = atoi(val);
             else if (strcmp(key, "max_tokens") == 0) sConfig.maxTokens = atoi(val);
+            else if (strcmp(key, "temperature") == 0) sConfig.temperature = atof(val);
         }
         fclose(f);
     }
@@ -175,12 +178,12 @@ static void BuildPrompts(const AiDialogRequest *req, char *sysOut, int sysSize,
     const struct AiMemorySlot *mem = FindMemory(req->npcKey, FALSE);
 
     int n = snprintf(sysOut, sysSize,
-        "You are writing one line of NPC dialog for Pokemon Emerald. "
+        "You rewrite one line of NPC dialog for Pokemon Emerald. "
         "Reply with only the spoken line: at most 2 short sentences and 150 characters. "
-        "Prefer plain ASCII, no quotes around the line, no emoji, no stage directions. "
-        "The scripted line is the NPC's canonical knowledge: keep its meaning, facts and "
-        "any directions intact, but rephrase it freshly with personality fitting the speaker. "
-        "Never break character or mention being an AI.");
+        "Prefer plain ASCII, no quotes around the line, no emoji, no stage directions or labels. "
+        "Keep the scripted line's underlying facts and any directions, but the STYLE is the top "
+        "priority: fully commit to it in tone and word choice, even rewriting drastically. "
+        "Never break character or mention being an AI. ");
 
     // Generate all dialog in a chosen language (e.g. "Italian"). Note: only
     // NPC dialog is affected; the game's menus/UI stay English.
@@ -196,20 +199,33 @@ static void BuildPrompts(const AiDialogRequest *req, char *sysOut, int sysSize,
                  " IMPORTANT STYLE — apply this to the line no matter what: %s",
                  sConfig.style);
 
-    snprintf(usrOut, usrSize,
-        "Location: %s\n"
-        "Speaker: %s\n"
-        "Player's name: %s\n"
-        "Scripted line: \"%s\"\n"
-        "%s%s%s"
-        "Write the speaker's line.",
-        req->mapName[0] ? req->mapName : "Hoenn",
-        req->persona[0] ? req->persona : "a villager",
-        req->playerName[0] ? req->playerName : "the player",
-        req->originalText,
-        (mem != NULL && mem->lastReply[0]) ? "Last time this NPC said: \"" : "",
-        (mem != NULL && mem->lastReply[0]) ? mem->lastReply : "",
-        (mem != NULL && mem->lastReply[0]) ? "\" (say something that doesn't repeat it verbatim)\n" : "");
+    {
+        // Re-state the style as the final instruction of the user turn — the
+        // position a small model weights most heavily — so it lands harder.
+        char styleReminder[320];
+        styleReminder[0] = '\0';
+        if (sConfig.style[0] != '\0')
+            snprintf(styleReminder, sizeof(styleReminder),
+                     "Rewrite it fully in this style, no exceptions: %s\n",
+                     sConfig.style);
+
+        snprintf(usrOut, usrSize,
+            "Location: %s\n"
+            "Speaker: %s\n"
+            "Player's name: %s\n"
+            "Scripted line: \"%s\"\n"
+            "%s%s%s"
+            "%s"
+            "Write the speaker's line.",
+            req->mapName[0] ? req->mapName : "Hoenn",
+            req->persona[0] ? req->persona : "a villager",
+            req->playerName[0] ? req->playerName : "the player",
+            req->originalText,
+            (mem != NULL && mem->lastReply[0]) ? "Last time this NPC said: \"" : "",
+            (mem != NULL && mem->lastReply[0]) ? mem->lastReply : "",
+            (mem != NULL && mem->lastReply[0]) ? "\" (say something that doesn't repeat it verbatim)\n" : "",
+            styleReminder);
+    }
 }
 
 // Strip anything that would break the text box: tags, quotes, whitespace runs.
@@ -331,6 +347,7 @@ static bool32 CallLocal(const char *sys, const char *usr, char *out, int outSize
 
     cJSON_AddStringToObject(root, "model", sConfig.localModel);
     cJSON_AddNumberToObject(root, "max_tokens", sConfig.maxTokens);
+    cJSON_AddNumberToObject(root, "temperature", sConfig.temperature);
     messages = cJSON_CreateArray();
     msg = cJSON_CreateObject();
     cJSON_AddStringToObject(msg, "role", "system");

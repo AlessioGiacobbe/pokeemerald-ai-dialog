@@ -118,6 +118,7 @@ default when no config file exists at all).
 | `style` | *(empty)* | global flavor applied to every NPC (see below) |
 | `timeout_ms` | `10000` | fallback to scripted line after this |
 | `max_tokens` | `200` | reply budget |
+| `temperature` | `0.9` | local backend only; higher = commits harder to a style |
 
 ### Playing in another language
 
