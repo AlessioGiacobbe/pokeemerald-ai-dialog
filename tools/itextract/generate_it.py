@@ -66,4 +66,28 @@ regen("src/data/text/abilities.h", ab_descs + ab_names)
 move_descs = [""] + ptrs(PTR_MOVEDESC, 354)
 regen("src/data/text/move_descriptions.h", move_descs)
 
+# --- item descriptions: deduped statics -> map by symbol (item struct desc@+20) ---
+def regen_by_symbol(relpath, sym2text):
+    path = os.path.join(REPO, relpath)
+    src = open(path, encoding="utf-8").read()
+    hits = [0]
+    def repl(m):
+        sym = m.group(1)
+        if sym not in sym2text:
+            return m.group(0)
+        hits[0] += 1
+        return f'static const u8 {sym}[] = _("{_esc(sym2text[sym])}")'
+    out = re.sub(r'static const u8 (\w+)\[\] = ' + _TOKEN.pattern, repl, src)
+    open(path, "w", encoding="utf-8").write(out)
+    print(f"{relpath}: {hits[0]} symbols replaced")
+
+item_desc_syms = re.findall(r'\.description = (\w+)',
+                            open(os.path.join(REPO, "src/data/items.h"), encoding="utf-8").read())
+sym2it = {}
+for i, sym in enumerate(item_desc_syms):
+    p = struct.unpack_from("<I", rom, BASE_ITEMS + i*44 + 20)[0] - 0x08000000
+    if sym not in sym2it and 0 <= p < N:
+        sym2it[sym] = decode(rom[p:p+200])
+regen_by_symbol("src/data/text/item_descriptions.h", sym2it)
+
 print("done")
