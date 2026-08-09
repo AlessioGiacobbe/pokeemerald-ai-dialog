@@ -101,6 +101,22 @@ Keep three rules and your mod stays robust: never block the game loop,
 always have a vanilla fallback, and convert text at the charmap boundary
 (`ai_text.c` is reusable for that).
 
+## Testing with lots of NPCs (dev teleport)
+
+To exercise the mod quickly, dev hotkeys warp you straight to a populated
+city (works once you have normal field control / can walk around):
+
+| Key | City |
+|---|---|
+| Ctrl+1 | Petalburg City |
+| Ctrl+2 | Rustboro City |
+| Ctrl+3 | Slateport City (market — lots of NPCs) |
+| Ctrl+4 | Mauville City |
+| Ctrl+5 | Lilycove City (department store — lots of NPCs) |
+
+It uses the game's own warp system (no save editing), so it's safe and
+reusable. `PORTABLE`-only; compiled out of GBA ROM builds.
+
 ## Config reference
 
 See `ai_dialog.cfg.example`. Environment variable `ANTHROPIC_API_KEY` is
